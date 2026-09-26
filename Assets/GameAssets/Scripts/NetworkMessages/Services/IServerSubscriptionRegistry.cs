@@ -4,6 +4,8 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 {
     public interface IServerSubscriptionRegistry
     {
+        void RegisterMessageType(NetworkMessageType messageType);
+
         bool Subscribe(int connectionId, NetworkMessageType messageType);
 
         bool Unsubscribe(int connectionId, NetworkMessageType messageType);

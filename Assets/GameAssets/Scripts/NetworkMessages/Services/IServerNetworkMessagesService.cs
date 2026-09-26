@@ -6,8 +6,8 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 {
     public interface IServerNetworkMessagesService
     {
-        event Action<NetworkConnectionToClient, NetworkMessageType> ClientSubscribed;
+        event Action<NetworkConnectionToClient, NetworkMessageType> OnClientSubscribed;
 
-        void SendHelloMessage(NetworkConnectionToClient connection, HelloMessage message);
+        bool Send<T>(NetworkConnectionToClient connection, T message) where T : struct, ISubscribedNetworkMessage;
     }
 }

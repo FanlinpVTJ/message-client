@@ -25,6 +25,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
         public ReactiveProperty<string> ConnectionLog { get; }
         public ReadOnlyReactiveProperty<NetworkSessionStateType> SessionState => _networkSessionService.SessionState;
         public ReadOnlyReactiveProperty<bool> IsHostStartAvailable => _networkSessionService.IsHostStartAvailable;
+        public ReadOnlyReactiveProperty<string> HostStartUnavailableReason => _networkSessionService.HostStartUnavailableReason;
 
         public HelloMessageViewModel(
             IClientNetworkMessagesService clientNetworkMessagesService,
@@ -38,8 +39,8 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
             NetworkAddress = new ReactiveProperty<string>(_networkSessionService.NetworkAddress);
             ConnectionLog = new ReactiveProperty<string>(string.Empty);
 
-            _clientNetworkMessagesService.HelloMessageReceived += HandleHelloMessageReceived;
             _networkMessagesDiagnosticsService.MessageReported += HandleDiagnosticsMessageReported;
+            _clientNetworkMessagesService.Subscribe<HelloMessage>(HandleHelloMessageReceived);
         }
 
         public void StartHost()
@@ -95,8 +96,8 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
 
         public void Dispose()
         {
-            _clientNetworkMessagesService.HelloMessageReceived -= HandleHelloMessageReceived;
             _networkMessagesDiagnosticsService.MessageReported -= HandleDiagnosticsMessageReported;
+            _clientNetworkMessagesService.Unsubscribe<HelloMessage>();
             HelloText.Dispose();
             NetworkAddress.Dispose();
             ConnectionLog.Dispose();

@@ -16,12 +16,12 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 
         public void Initialize()
         {
-            _serverNetworkMessagesService.ClientSubscribed += HandleClientSubscribed;
+            _serverNetworkMessagesService.OnClientSubscribed += HandleClientSubscribed;
         }
 
         public void Dispose()
         {
-            _serverNetworkMessagesService.ClientSubscribed -= HandleClientSubscribed;
+            _serverNetworkMessagesService.OnClientSubscribed -= HandleClientSubscribed;
         }
 
         private void HandleClientSubscribed(NetworkConnectionToClient connection, NetworkMessageType messageType)
@@ -36,7 +36,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
                 Text = "Hello Client!"
             };
 
-            _serverNetworkMessagesService.SendHelloMessage(connection, helloMessage);
+            _serverNetworkMessagesService.Send(connection, helloMessage);
         }
     }
 }

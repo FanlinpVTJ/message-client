@@ -10,12 +10,15 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
         private const int MESSAGE_BURST_LIMIT = 8;
         private const double MESSAGES_PER_SECOND = 2;
 
+        public event Action<NetworkConnectionToClient, NetworkMessageType> OnClientSubscribed;
+
         private readonly IServerSubscriptionRegistry _subscriptionRegistry;
         private readonly INetworkMessagesDiagnosticsService _networkMessagesDiagnosticsService;
+        private readonly Dictionary<ushort, MessageRegistration> _registrationsByMessageId = new();
+        private readonly Dictionary<NetworkMessageType, MessageRegistration> _registrationsByMessageType = new();
         private readonly Dictionary<int, MessageRateLimit> _subscriptionRateLimits = new();
-        private readonly MessageRateLimit _helloMessageRateLimit = new();
-        private bool _isHelloMessageHandlerRegistered;
-        private bool _isSubscribedToHelloMessages;
+        private readonly Dictionary<int, MessageRateLimit> _sendRateLimits = new();
+        private bool _isClientMessageRejected;
 
         public MirrorNetworkMessagesService(
             IServerSubscriptionRegistry subscriptionRegistry,
@@ -25,99 +28,174 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
             _networkMessagesDiagnosticsService = networkMessagesDiagnosticsService;
         }
 
-        public event System.Action<HelloMessage> HelloMessageReceived;
-        public event System.Action<NetworkConnectionToClient, NetworkMessageType> ClientSubscribed;
+        public void Register<T>(NetworkMessageType messageType) where T : struct, ISubscribedNetworkMessage
+        {
+            if (NetworkServer.active || NetworkClient.active)
+            {
+                throw new InvalidOperationException("Message types must be registered before starting a network session.");
+            }
+
+            ushort messageId = Mirror.NetworkMessages.GetId<T>();
+
+            if (_registrationsByMessageId.ContainsKey(messageId) || _registrationsByMessageType.ContainsKey(messageType) ||
+                messageId == Mirror.NetworkMessages.GetId<NetworkSubscriptionMessage>())
+            {
+                throw new InvalidOperationException($"Duplicate message type or Mirror message ID: {messageType}, {messageId}.");
+            }
+
+            MessageRegistration registration = new MessageRegistration(messageType, () => NetworkClient.UnregisterHandler<T>());
+            _registrationsByMessageId.Add(messageId, registration);
+            _registrationsByMessageType.Add(messageType, registration);
+            _subscriptionRegistry.RegisterMessageType(messageType);
+        }
+
+        public bool Subscribe<T>(Action<T> handler) where T : struct, ISubscribedNetworkMessage
+        {
+            MessageRegistration registration = GetRegistration<T>();
+
+            if (registration.IsSubscribed)
+            {
+                return false;
+            }
+
+            if (registration.IsHandlerRegistered)
+            {
+                registration.UnregisterHandler();
+                registration.IsHandlerRegistered = false;
+            }
+
+            registration.RegisterHandler = () => NetworkClient.ReplaceHandler<T>(message => HandleMessage(message, registration, handler));
+            registration.IsSubscribed = true;
+
+            if (NetworkClient.active)
+            {
+                RegisterClientHandler(registration);
+                SynchronizeClientSubscription(registration);
+            }
+
+            return true;
+        }
+
+        public bool Unsubscribe<T>() where T : struct, ISubscribedNetworkMessage
+        {
+            MessageRegistration registration = GetRegistration<T>();
+
+            if (!registration.IsSubscribed)
+            {
+                return false;
+            }
+
+            registration.IsSubscribed = false;
+            registration.RegisterHandler = null;
+
+            if (NetworkClient.isConnected && registration.IsSubscriptionSent)
+            {
+                SendSubscription(registration, NetworkSubscriptionOperationType.Unsubscribe);
+            }
+
+            registration.IsSubscriptionSent = false;
+            return true;
+        }
+
+        public bool Send<T>(NetworkConnectionToClient connection, T message) where T : struct, ISubscribedNetworkMessage
+        {
+            MessageRegistration registration = GetRegistration<T>();
+
+            if (!NetworkServer.active || !NetworkServer.connections.TryGetValue(connection.connectionId, out NetworkConnectionToClient activeConnection) ||
+                activeConnection != connection || !connection.isAuthenticated)
+            {
+                return false;
+            }
+
+            if (!message.IsValid)
+            {
+                _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Error, $"{registration.MessageType} was not sent: invalid message data.");
+                return false;
+            }
+
+            if (!_subscriptionRegistry.IsSubscribed(connection.connectionId, registration.MessageType))
+            {
+                return false;
+            }
+
+            if (!_sendRateLimits.TryGetValue(connection.connectionId, out MessageRateLimit rateLimit))
+            {
+                rateLimit = new MessageRateLimit();
+                _sendRateLimits.Add(connection.connectionId, rateLimit);
+            }
+
+            if (!rateLimit.TryConsume())
+            {
+                if (!rateLimit.HasReportedLimit)
+                {
+                    rateLimit.HasReportedLimit = true;
+                    _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, $"Server send limit reached for connection {connection.connectionId}. Excess messages are not sent.");
+                }
+
+                return false;
+            }
+
+            connection.Send(message);
+            _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Success, $"Server sent {registration.MessageType} to client connection {connection.connectionId}: {message.Description}");
+            return true;
+        }
 
         public void InitializeServer()
         {
             _subscriptionRegistry.Clear();
             _subscriptionRateLimits.Clear();
+            _sendRateLimits.Clear();
             NetworkServer.RegisterHandler<NetworkSubscriptionMessage>(HandleSubscriptionMessage);
             _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Success, "Server subscription handler registered.");
         }
 
         public void InitializeClient()
         {
-            _isHelloMessageHandlerRegistered = false;
-            _isSubscribedToHelloMessages = false;
-            _helloMessageRateLimit.Reset();
+            _isClientMessageRejected = false;
+
+            foreach (MessageRegistration registration in _registrationsByMessageType.Values)
+            {
+                registration.IsSubscriptionSent = false;
+                registration.IsHandlerRegistered = false;
+
+                if (registration.IsSubscribed)
+                {
+                    RegisterClientHandler(registration);
+                }
+            }
+
             _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, "Client network service initialized.");
         }
 
-        public void SubscribeToHelloMessages()
+        public void SynchronizeClientSubscriptions()
         {
-            if (!NetworkClient.isConnected || _isSubscribedToHelloMessages)
+            foreach (MessageRegistration registration in _registrationsByMessageType.Values)
             {
-                return;
+                SynchronizeClientSubscription(registration);
             }
-
-            RegisterHelloMessageHandler();
-
-            NetworkSubscriptionMessage subscriptionMessage = new NetworkSubscriptionMessage
-            {
-                MessageType = NetworkMessageType.Hello,
-                OperationType = NetworkSubscriptionOperationType.Subscribe
-            };
-
-            _isSubscribedToHelloMessages = true;
-            NetworkClient.Send(subscriptionMessage);
-            _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, "HelloMessage subscription sent to server.");
-        }
-
-        public void UnsubscribeFromHelloMessages()
-        {
-            if (!NetworkClient.isConnected || !_isSubscribedToHelloMessages)
-            {
-                return;
-            }
-
-            NetworkSubscriptionMessage subscriptionMessage = new NetworkSubscriptionMessage
-            {
-                MessageType = NetworkMessageType.Hello,
-                OperationType = NetworkSubscriptionOperationType.Unsubscribe
-            };
-
-            _isSubscribedToHelloMessages = false;
-            NetworkClient.Send(subscriptionMessage);
-            _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, "HelloMessage unsubscription sent to server.");
-        }
-
-        public void SendHelloMessage(NetworkConnectionToClient connection, HelloMessage message)
-        {
-            if (!NetworkServer.active || !NetworkServer.connections.TryGetValue(connection.connectionId, out NetworkConnectionToClient activeConnection) || activeConnection != connection)
-            {
-                return;
-            }
-
-            if (string.IsNullOrEmpty(message.Text) || message.Text.Length > HelloMessage.MAX_TEXT_LENGTH)
-            {
-                _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Error, "HelloMessage was not sent: invalid text length.");
-                return;
-            }
-
-            if (!_subscriptionRegistry.IsSubscribed(connection.connectionId, NetworkMessageType.Hello))
-            {
-                _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Error, $"HelloMessage was not sent to connection {connection.connectionId}: no subscription.");
-                return;
-            }
-
-            connection.Send(message);
-            _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Success, $"Server sent HelloMessage to client connection {connection.connectionId}: {message.Text}");
         }
 
         public void RemoveClient(NetworkConnectionToClient connection)
         {
             _subscriptionRegistry.RemoveConnection(connection.connectionId);
             _subscriptionRateLimits.Remove(connection.connectionId);
+            _sendRateLimits.Remove(connection.connectionId);
             _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, $"Connection {connection.connectionId} subscriptions removed.");
         }
 
         public void StopClient()
         {
-            _isHelloMessageHandlerRegistered = false;
-            _isSubscribedToHelloMessages = false;
-            _helloMessageRateLimit.Reset();
-            NetworkClient.UnregisterHandler<HelloMessage>();
+            foreach (MessageRegistration registration in _registrationsByMessageType.Values)
+            {
+                registration.IsSubscriptionSent = false;
+
+                if (registration.IsHandlerRegistered)
+                {
+                    registration.UnregisterHandler();
+                    registration.IsHandlerRegistered = false;
+                }
+            }
+
             _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, "Client network service stopped.");
         }
 
@@ -126,18 +204,55 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
             NetworkServer.UnregisterHandler<NetworkSubscriptionMessage>();
             _subscriptionRegistry.Clear();
             _subscriptionRateLimits.Clear();
+            _sendRateLimits.Clear();
         }
 
-        private void RegisterHelloMessageHandler()
+        private MessageRegistration GetRegistration<T>() where T : struct, ISubscribedNetworkMessage
         {
-            if (_isHelloMessageHandlerRegistered)
+            ushort messageId = Mirror.NetworkMessages.GetId<T>();
+
+            if (!_registrationsByMessageId.TryGetValue(messageId, out MessageRegistration registration))
+            {
+                throw new InvalidOperationException($"Mirror message {messageId} must be registered in NetworkMessagesInstaller before use.");
+            }
+
+            return registration;
+        }
+
+        private void RegisterClientHandler(MessageRegistration registration)
+        {
+            if (registration.IsHandlerRegistered)
             {
                 return;
             }
 
-            NetworkClient.RegisterHandler<HelloMessage>(HandleHelloMessage);
-            _isHelloMessageHandlerRegistered = true;
-            _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Success, "HelloMessage handler registered on client.");
+            registration.RegisterHandler();
+            registration.IsHandlerRegistered = true;
+            _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Success, $"{registration.MessageType} handler registered on client.");
+        }
+
+        private void SynchronizeClientSubscription(MessageRegistration registration)
+        {
+            if (!NetworkClient.isConnected || !registration.IsSubscribed || registration.IsSubscriptionSent)
+            {
+                return;
+            }
+
+            RegisterClientHandler(registration);
+            registration.IsSubscriptionSent = true;
+            SendSubscription(registration, NetworkSubscriptionOperationType.Subscribe);
+        }
+
+        private void SendSubscription(MessageRegistration registration, NetworkSubscriptionOperationType operationType)
+        {
+            NetworkSubscriptionMessage subscriptionMessage = new NetworkSubscriptionMessage
+            {
+                MessageType = registration.MessageType,
+                OperationType = operationType
+            };
+
+            NetworkClient.Send(subscriptionMessage);
+            _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, $"{registration.MessageType}: {operationType} sent to server.");
         }
 
         private void HandleSubscriptionMessage(NetworkConnectionToClient connection, NetworkSubscriptionMessage message)
@@ -149,7 +264,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 
             if (!_subscriptionRateLimits.TryGetValue(connection.connectionId, out MessageRateLimit rateLimit))
             {
-                rateLimit = new MessageRateLimit();
+                rateLimit = new MessageRateLimit(Math.Max(MESSAGE_BURST_LIMIT, _registrationsByMessageType.Count));
                 _subscriptionRateLimits.Add(connection.connectionId, rateLimit);
             }
 
@@ -158,7 +273,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
                 return;
             }
 
-            if (message.MessageType != NetworkMessageType.Hello ||
+            if (!_registrationsByMessageType.ContainsKey(message.MessageType) ||
                 (message.OperationType != NetworkSubscriptionOperationType.Subscribe && message.OperationType != NetworkSubscriptionOperationType.Unsubscribe))
             {
                 RejectSubscription(connection, rateLimit, "unsupported subscription type or operation");
@@ -180,7 +295,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
                     }
 
                     _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Success, $"Connection {connection.connectionId} subscribed to {message.MessageType}.");
-                    ClientSubscribed?.Invoke(connection, message.MessageType);
+                    OnClientSubscribed?.Invoke(connection, message.MessageType);
                     break;
                 case NetworkSubscriptionOperationType.Unsubscribe:
                     if (!_subscriptionRegistry.Unsubscribe(connection.connectionId, message.MessageType))
@@ -193,28 +308,28 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
             }
         }
 
-        private void HandleHelloMessage(HelloMessage message)
+        private void HandleMessage<T>(T message, MessageRegistration registration, Action<T> handler) where T : struct, ISubscribedNetworkMessage
         {
-            if (_helloMessageRateLimit.IsRejected)
+            if (_isClientMessageRejected)
             {
                 return;
             }
 
-            if (string.IsNullOrEmpty(message.Text) || message.Text.Length > HelloMessage.MAX_TEXT_LENGTH || !_helloMessageRateLimit.TryConsume())
+            if (!message.IsValid)
             {
-                _helloMessageRateLimit.IsRejected = true;
-                _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Error, "Server sent invalid or too many HelloMessages. Disconnecting client.");
+                _isClientMessageRejected = true;
+                _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Error, $"Server sent invalid {registration.MessageType} data. Disconnecting client.");
                 NetworkClient.Disconnect();
                 return;
             }
 
-            if (!_isSubscribedToHelloMessages)
+            if (!registration.IsSubscribed || !registration.IsSubscriptionSent)
             {
                 return;
             }
 
-            _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Success, $"Client received HelloMessage from server: {message.Text}");
-            HelloMessageReceived?.Invoke(message);
+            _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Success, $"Client received {registration.MessageType} from server: {message.Description}");
+            handler(message);
         }
 
         private void RejectSubscription(NetworkConnectionToClient connection, MessageRateLimit rateLimit, string reason)
@@ -224,17 +339,41 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
             connection.Disconnect();
         }
 
+        private sealed class MessageRegistration
+        {
+            public NetworkMessageType MessageType { get; }
+            public Action UnregisterHandler { get; }
+            public Action RegisterHandler { get; set; }
+            public bool IsSubscribed { get; set; }
+            public bool IsSubscriptionSent { get; set; }
+            public bool IsHandlerRegistered { get; set; }
+
+            public MessageRegistration(NetworkMessageType messageType, Action unregisterHandler)
+            {
+                MessageType = messageType;
+                UnregisterHandler = unregisterHandler;
+            }
+        }
+
         private sealed class MessageRateLimit
         {
-            private double _tokens = MESSAGE_BURST_LIMIT;
+            private readonly int _burstLimit;
+            private double _tokens;
             private double _lastUpdateTime = NetworkTime.localTime;
 
             public bool IsRejected { get; set; }
+            public bool HasReportedLimit { get; set; }
+
+            public MessageRateLimit(int burstLimit = MESSAGE_BURST_LIMIT)
+            {
+                _burstLimit = burstLimit;
+                _tokens = burstLimit;
+            }
 
             public bool TryConsume()
             {
                 double currentTime = NetworkTime.localTime;
-                _tokens = Math.Min(MESSAGE_BURST_LIMIT, _tokens + Math.Max(0, currentTime - _lastUpdateTime) * MESSAGES_PER_SECOND);
+                _tokens = Math.Min(_burstLimit, _tokens + Math.Max(0, currentTime - _lastUpdateTime) * MESSAGES_PER_SECOND);
                 _lastUpdateTime = currentTime;
 
                 if (_tokens < 1)
@@ -244,13 +383,6 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 
                 _tokens -= 1;
                 return true;
-            }
-
-            public void Reset()
-            {
-                _tokens = MESSAGE_BURST_LIMIT;
-                _lastUpdateTime = NetworkTime.localTime;
-                IsRejected = false;
             }
         }
     }

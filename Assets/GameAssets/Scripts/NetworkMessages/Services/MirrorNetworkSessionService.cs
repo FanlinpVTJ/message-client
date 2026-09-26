@@ -19,10 +19,13 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
         private readonly INetworkMessagesDiagnosticsService _networkMessagesDiagnosticsService;
         private readonly ReactiveProperty<NetworkSessionStateType> _sessionState = new(NetworkSessionStateType.Offline);
         private readonly ReactiveProperty<bool> _isHostStartAvailable = new(false);
+        private readonly ReactiveProperty<string> _hostStartUnavailableReason = new(string.Empty);
         private double _nextPortCheckTime;
+        private bool _hasReportedHostAvailability;
 
         public ReadOnlyReactiveProperty<NetworkSessionStateType> SessionState => _sessionState;
         public ReadOnlyReactiveProperty<bool> IsHostStartAvailable => _isHostStartAvailable;
+        public ReadOnlyReactiveProperty<string> HostStartUnavailableReason => _hostStartUnavailableReason;
         public string NetworkAddress => _networkManager.networkAddress;
 
         public MirrorNetworkSessionService(
@@ -49,6 +52,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
         {
             _sessionState.Dispose();
             _isHostStartAvailable.Dispose();
+            _hostStartUnavailableReason.Dispose();
         }
 
         public void SetNetworkAddress(string networkAddress)
@@ -64,9 +68,29 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 
         public bool IsHostPortAvailable()
         {
-            if (NetworkServer.active || NetworkClient.active || !_transport.Available() || _networkManager.transport != _transport)
+            return GetHostStartUnavailableReason().Length == 0;
+        }
+
+        private string GetHostStartUnavailableReason()
+        {
+            if (NetworkServer.active)
             {
-                return false;
+                return "Host is already running.";
+            }
+
+            if (NetworkClient.active)
+            {
+                return "Host is unavailable while the client is connecting or connected. Stop Client first.";
+            }
+
+            if (_networkManager.transport != _transport)
+            {
+                return "Host is unavailable: NetworkManager must use the configured KCP transport.";
+            }
+
+            if (!_transport.Available())
+            {
+                return "Host is unavailable: KCP transport is not supported on this platform.";
             }
 
             AddressFamily addressFamily = _transport.DualMode ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork;
@@ -82,16 +106,21 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
                     }
 
                     socket.Bind(new IPEndPoint(address, _transport.Port));
-                    return true;
+                    return string.Empty;
                 }
             }
-            catch (SocketException)
+            catch (SocketException exception)
             {
-                return false;
+                if (exception.SocketErrorCode == SocketError.AddressAlreadyInUse)
+                {
+                    return $"Host is unavailable: UDP port {_transport.Port} is already in use.";
+                }
+
+                return $"Host is unavailable: cannot open UDP port {_transport.Port} ({exception.SocketErrorCode}).";
             }
             catch (NotSupportedException)
             {
-                return false;
+                return "Host is unavailable: the selected IP mode is not supported on this platform.";
             }
         }
 
@@ -102,10 +131,10 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
                 return false;
             }
 
-            if (!IsHostPortAvailable())
+            RefreshState(true);
+
+            if (!_isHostStartAvailable.Value)
             {
-                _isHostStartAvailable.Value = false;
-                _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Error, $"Host cannot start: UDP port {_transport.Port} cannot be opened with the current KCP settings.");
                 return false;
             }
 
@@ -177,7 +206,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 
         private bool StartSession(Action startSession, NetworkSessionStateType requestedState)
         {
-            _isHostStartAvailable.Value = false;
+            SetHostStartAvailability("Host is unavailable while a network session is starting.", NetworkDiagnosticsType.Information);
             _sessionState.Value = requestedState;
             bool started = false;
 
@@ -263,7 +292,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 
             if (state != NetworkSessionStateType.Offline)
             {
-                _isHostStartAvailable.Value = false;
+                SetHostStartAvailability(GetHostStartUnavailableReason(), NetworkDiagnosticsType.Information);
                 _sessionState.Value = state;
                 return;
             }
@@ -272,11 +301,29 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 
             if (forcePortCheck || stateChanged || currentTime >= _nextPortCheckTime)
             {
-                _isHostStartAvailable.Value = IsHostPortAvailable();
+                SetHostStartAvailability(GetHostStartUnavailableReason(), NetworkDiagnosticsType.Error);
                 _nextPortCheckTime = currentTime + PORT_CHECK_INTERVAL_SECONDS;
             }
 
             _sessionState.Value = state;
+        }
+
+        private void SetHostStartAvailability(string reason, NetworkDiagnosticsType diagnosticsType)
+        {
+            bool reasonChanged = _hostStartUnavailableReason.Value != reason;
+            bool isAvailable = reason.Length == 0;
+            _isHostStartAvailable.Value = isAvailable;
+            _hostStartUnavailableReason.Value = reason;
+
+            if (_hasReportedHostAvailability && !reasonChanged)
+            {
+                return;
+            }
+
+            _hasReportedHostAvailability = true;
+            _networkMessagesDiagnosticsService.Report(
+                isAvailable ? NetworkDiagnosticsType.Success : diagnosticsType,
+                isAvailable ? $"Host is available: UDP port {_transport.Port} is free." : reason);
         }
     }
 }

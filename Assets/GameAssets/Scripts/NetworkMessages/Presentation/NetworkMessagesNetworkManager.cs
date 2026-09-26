@@ -8,7 +8,6 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
     public sealed class NetworkMessagesNetworkManager : NetworkManager
     {
         [Inject] private INetworkMessagesLifecycleService _networkMessagesLifecycleService;
-        [Inject] private IClientNetworkMessagesService _clientNetworkMessagesService;
         [Inject] private INetworkMessagesDiagnosticsService _networkMessagesDiagnosticsService;
 
         public override void OnStartHost()
@@ -35,7 +34,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
         {
             base.OnClientConnect();
             _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Success, "Client connected to server.");
-            _clientNetworkMessagesService.SubscribeToHelloMessages();
+            _networkMessagesLifecycleService.SynchronizeClientSubscriptions();
         }
 
         public override void OnServerConnect(NetworkConnectionToClient connection)

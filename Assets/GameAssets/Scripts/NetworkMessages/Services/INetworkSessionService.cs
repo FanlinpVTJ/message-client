@@ -9,6 +9,8 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 
         ReadOnlyReactiveProperty<bool> IsHostStartAvailable { get; }
 
+        ReadOnlyReactiveProperty<string> HostStartUnavailableReason { get; }
+
         string NetworkAddress { get; }
 
         bool IsHostPortAvailable();

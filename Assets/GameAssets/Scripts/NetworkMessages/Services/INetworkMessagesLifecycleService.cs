@@ -8,6 +8,8 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 
         void InitializeClient();
 
+        void SynchronizeClientSubscriptions();
+
         void RemoveClient(NetworkConnectionToClient connection);
 
         void StopClient();

@@ -7,10 +7,16 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
     {
         private readonly Dictionary<NetworkMessageType, HashSet<int>> _connectionIdsByMessageType = new();
         private readonly List<NetworkMessageType> _emptyMessageTypes = new();
+        private readonly HashSet<NetworkMessageType> _registeredMessageTypes = new();
+
+        public void RegisterMessageType(NetworkMessageType messageType)
+        {
+            _registeredMessageTypes.Add(messageType);
+        }
 
         public bool Subscribe(int connectionId, NetworkMessageType messageType)
         {
-            if (messageType != NetworkMessageType.Hello)
+            if (!_registeredMessageTypes.Contains(messageType))
             {
                 return false;
             }

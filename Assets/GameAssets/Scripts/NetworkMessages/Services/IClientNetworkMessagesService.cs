@@ -5,10 +5,8 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 {
     public interface IClientNetworkMessagesService
     {
-        event Action<HelloMessage> HelloMessageReceived;
+        bool Subscribe<T>(Action<T> handler) where T : struct, ISubscribedNetworkMessage;
 
-        void SubscribeToHelloMessages();
-
-        void UnsubscribeFromHelloMessages();
+        bool Unsubscribe<T>() where T : struct, ISubscribedNetworkMessage;
     }
 }
