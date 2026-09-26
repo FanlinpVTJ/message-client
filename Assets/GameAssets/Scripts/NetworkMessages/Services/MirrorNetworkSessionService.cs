@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using kcp2k;
 using Mirror;
@@ -40,6 +42,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
         public void Initialize()
         {
             RefreshState(true);
+            ReportLocalAddresses();
         }
 
         public void Tick()
@@ -131,6 +134,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
                 return false;
             }
 
+            ReportLocalAddresses();
             return StartSession(_networkManager.StartHost, NetworkSessionStateType.Host);
         }
 
@@ -195,6 +199,55 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
             }
 
             return true;
+        }
+
+        private void ReportLocalAddresses()
+        {
+            List<string> addresses = new List<string>();
+
+            try
+            {
+                foreach (NetworkInterface networkInterface in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (networkInterface.OperationalStatus != OperationalStatus.Up ||
+                        networkInterface.NetworkInterfaceType == NetworkInterfaceType.Loopback ||
+                        networkInterface.NetworkInterfaceType == NetworkInterfaceType.Tunnel)
+                    {
+                        continue;
+                    }
+
+                    foreach (UnicastIPAddressInformation addressInformation in networkInterface.GetIPProperties().UnicastAddresses)
+                    {
+                        IPAddress address = addressInformation.Address;
+
+                        if (address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(address))
+                        {
+                            addresses.Add($"{address} ({networkInterface.Name})");
+                        }
+                    }
+                }
+            }
+            catch (NetworkInformationException exception)
+            {
+                _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, $"Local IPv4 addresses could not be read: {exception.Message}");
+                return;
+            }
+            catch (NotSupportedException)
+            {
+                _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, "Local IPv4 discovery is unavailable on this platform. Check the device network settings.");
+                return;
+            }
+
+            if (addresses.Count == 0)
+            {
+                _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, "No active local IPv4 address found. Check the device Wi-Fi or Ethernet connection.");
+                return;
+            }
+
+            foreach (string address in addresses)
+            {
+                _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, $"Local IPv4: {address}. Host UDP port: {_transport.Port}.");
+            }
         }
 
         private bool StartSession(Action startSession, NetworkSessionStateType requestedState)
