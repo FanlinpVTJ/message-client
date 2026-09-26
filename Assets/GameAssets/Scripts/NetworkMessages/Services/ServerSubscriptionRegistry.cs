@@ -6,26 +6,39 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
     public sealed class ServerSubscriptionRegistry : IServerSubscriptionRegistry
     {
         private readonly Dictionary<NetworkMessageType, HashSet<int>> _connectionIdsByMessageType = new();
+        private readonly List<NetworkMessageType> _emptyMessageTypes = new();
 
-        public void Subscribe(int connectionId, NetworkMessageType messageType)
+        public bool Subscribe(int connectionId, NetworkMessageType messageType)
         {
+            if (messageType != NetworkMessageType.Hello)
+            {
+                return false;
+            }
+
             if (!_connectionIdsByMessageType.TryGetValue(messageType, out HashSet<int> connectionIds))
             {
                 connectionIds = new HashSet<int>();
                 _connectionIdsByMessageType.Add(messageType, connectionIds);
             }
 
-            connectionIds.Add(connectionId);
+            return connectionIds.Add(connectionId);
         }
 
-        public void Unsubscribe(int connectionId, NetworkMessageType messageType)
+        public bool Unsubscribe(int connectionId, NetworkMessageType messageType)
         {
             if (!_connectionIdsByMessageType.TryGetValue(messageType, out HashSet<int> connectionIds))
             {
-                return;
+                return false;
             }
 
-            connectionIds.Remove(connectionId);
+            bool removed = connectionIds.Remove(connectionId);
+
+            if (connectionIds.Count == 0)
+            {
+                _connectionIdsByMessageType.Remove(messageType);
+            }
+
+            return removed;
         }
 
         public bool IsSubscribed(int connectionId, NetworkMessageType messageType)
@@ -40,10 +53,28 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 
         public void RemoveConnection(int connectionId)
         {
-            foreach (HashSet<int> connectionIds in _connectionIdsByMessageType.Values)
+            _emptyMessageTypes.Clear();
+
+            foreach (KeyValuePair<NetworkMessageType, HashSet<int>> subscription in _connectionIdsByMessageType)
             {
-                connectionIds.Remove(connectionId);
+                subscription.Value.Remove(connectionId);
+
+                if (subscription.Value.Count == 0)
+                {
+                    _emptyMessageTypes.Add(subscription.Key);
+                }
             }
+
+            foreach (NetworkMessageType messageType in _emptyMessageTypes)
+            {
+                _connectionIdsByMessageType.Remove(messageType);
+            }
+        }
+
+        public void Clear()
+        {
+            _connectionIdsByMessageType.Clear();
+            _emptyMessageTypes.Clear();
         }
     }
 }

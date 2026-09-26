@@ -1,3 +1,5 @@
+using kcp2k;
+using Mirror;
 using UnityEngine;
 using Zenject;
 using Yuriy.MatchThree.NetworkMessages.Presentation;
@@ -11,13 +13,15 @@ namespace Yuriy.MatchThree.NetworkMessages.Installers
 
         public override void InstallBindings()
         {
+            Container.Bind<NetworkManager>().FromComponentInHierarchy().AsSingle();
+            Container.Bind<KcpTransport>().FromComponentInHierarchy().AsSingle();
             Container.Bind<IServerSubscriptionRegistry>().To<ServerSubscriptionRegistry>().AsSingle();
             Container.Bind<INetworkMessagesDiagnosticsService>().To<NetworkMessagesDiagnosticsService>().AsSingle();
             Container.BindInterfacesAndSelfTo<MirrorNetworkMessagesService>().AsSingle();
-            Container.Bind<INetworkSessionService>().To<MirrorNetworkSessionService>().AsSingle();
+            Container.BindInterfacesAndSelfTo<MirrorNetworkSessionService>().AsSingle();
             Container.BindInterfacesAndSelfTo<HelloGreetingService>().AsSingle();
             Container.BindInterfacesAndSelfTo<HelloMessageViewModel>().AsSingle();
-            Container.InstantiatePrefabForComponent<HelloMessageView>(_helloMessageViewPrefab);
+            Container.Bind<HelloMessageView>().FromComponentInNewPrefab(_helloMessageViewPrefab).AsSingle().NonLazy();
         }
     }
 }

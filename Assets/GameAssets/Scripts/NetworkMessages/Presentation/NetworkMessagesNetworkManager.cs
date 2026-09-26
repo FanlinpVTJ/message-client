@@ -9,7 +9,6 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
     {
         [Inject] private INetworkMessagesLifecycleService _networkMessagesLifecycleService;
         [Inject] private IClientNetworkMessagesService _clientNetworkMessagesService;
-        [Inject] private INetworkSessionService _networkSessionService;
         [Inject] private INetworkMessagesDiagnosticsService _networkMessagesDiagnosticsService;
 
         public override void OnStartHost()
@@ -55,7 +54,6 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
         public override void OnClientDisconnect()
         {
             _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, "Client disconnected from server.");
-            _networkSessionService.NotifyClientSessionStopped();
             base.OnClientDisconnect();
         }
 
@@ -74,8 +72,30 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
 
         public override void OnApplicationQuit()
         {
-            _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, "Application is closing. Releasing network resources.");
-            base.OnApplicationQuit();
+            try
+            {
+                if (NetworkClient.active)
+                {
+                    StopClient();
+                }
+            }
+            finally
+            {
+                base.OnApplicationQuit();
+            }
+        }
+
+        public override void OnStopServer()
+        {
+            _networkMessagesLifecycleService.StopServer();
+            _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, "Server stopped.");
+            base.OnStopServer();
+        }
+
+        public override void OnServerError(NetworkConnectionToClient connection, TransportError error, string reason)
+        {
+            _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Error, $"Server transport error {error}: {reason}");
+            base.OnServerError(connection, error, reason);
         }
     }
 }

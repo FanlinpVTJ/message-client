@@ -1,14 +1,17 @@
-using System;
+using R3;
+using Yuriy.MatchThree.NetworkMessages.Contracts;
 
 namespace Yuriy.MatchThree.NetworkMessages.Services
 {
     public interface INetworkSessionService
     {
-        event Action OnClientSessionStopped;
+        ReadOnlyReactiveProperty<NetworkSessionStateType> SessionState { get; }
+
+        ReadOnlyReactiveProperty<bool> IsHostStartAvailable { get; }
+
+        string NetworkAddress { get; }
 
         bool IsHostPortAvailable();
-
-        void NotifyClientSessionStopped();
 
         void SetNetworkAddress(string networkAddress);
 

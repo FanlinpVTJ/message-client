@@ -11,5 +11,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
         void RemoveClient(NetworkConnectionToClient connection);
 
         void StopClient();
+
+        void StopServer();
     }
 }

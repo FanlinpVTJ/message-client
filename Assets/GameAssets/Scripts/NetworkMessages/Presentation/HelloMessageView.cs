@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using R3;
 using TMPro;
 using UnityEngine;
@@ -9,7 +8,7 @@ using Yuriy.MatchThree.NetworkMessages.Contracts;
 
 namespace Yuriy.MatchThree.NetworkMessages.Presentation
 {
-    public sealed class HelloMessageView : MonoBehaviour
+    public sealed class HelloMessageView : MonoBehaviour, ICanvasElement
     {
         [SerializeField] private Button _startHostButton;
         [SerializeField] private Button _startClientButton;
@@ -28,9 +27,14 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
         private IDisposable _connectionLogSubscription;
         private IDisposable _sessionStateSubscription;
         private IDisposable _hostStartAvailabilitySubscription;
+        private bool _helloScrollPending;
+        private bool _logScrollPending;
 
         private void Awake()
         {
+            _helloTextLabel.richText = false;
+            _helloTextLabel.parseCtrlCharacters = false;
+            _connectionLogLabel.parseCtrlCharacters = false;
             _startHostButton.onClick.AddListener(HandleStartHostClicked);
             _startClientButton.onClick.AddListener(HandleStartClientClicked);
             _stopHostButton.onClick.AddListener(HandleStopHostClicked);
@@ -41,6 +45,52 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
             _connectionLogSubscription = _helloMessageViewModel.ConnectionLog.Subscribe(HandleConnectionLogChanged);
             _sessionStateSubscription = _helloMessageViewModel.SessionState.Subscribe(HandleSessionStateChanged);
             _hostStartAvailabilitySubscription = _helloMessageViewModel.IsHostStartAvailable.Subscribe(HandleHostStartAvailabilityChanged);
+        }
+
+        private void LateUpdate()
+        {
+            if (_helloScrollPending || _logScrollPending)
+            {
+                CanvasUpdateRegistry.RegisterCanvasElementForLayoutRebuild(this);
+            }
+        }
+
+        private void OnDisable()
+        {
+            CanvasUpdateRegistry.UnRegisterCanvasElementForRebuild(this);
+        }
+
+        public void Rebuild(CanvasUpdate executing)
+        {
+        }
+
+        public void LayoutComplete()
+        {
+            if (this == null || !isActiveAndEnabled)
+            {
+                return;
+            }
+
+            if (_helloScrollPending)
+            {
+                _helloScrollPending = false;
+                ScrollToBottom(_helloMessagesScrollRect);
+            }
+
+            if (_logScrollPending)
+            {
+                _logScrollPending = false;
+                ScrollToBottom(_connectionLogScrollRect);
+            }
+        }
+
+        public void GraphicUpdateComplete()
+        {
+        }
+
+        public bool IsDestroyed()
+        {
+            return this == null;
         }
 
         private void OnDestroy()
@@ -85,7 +135,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
         private void HandleHelloTextChanged(string helloText)
         {
             _helloTextLabel.text = helloText;
-            ScrollToBottom(_helloMessagesScrollRect);
+            _helloScrollPending = true;
         }
 
         private void HandleNetworkAddressUpdated(string networkAddress)
@@ -96,7 +146,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
         private void HandleConnectionLogChanged(string connectionLog)
         {
             _connectionLogLabel.text = connectionLog;
-            ScrollToBottom(_connectionLogScrollRect);
+            _logScrollPending = true;
         }
 
         private void HandleSessionStateChanged(NetworkSessionStateType sessionState)
@@ -105,26 +155,27 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
             bool isHost = sessionState == NetworkSessionStateType.Host;
             bool isClient = sessionState == NetworkSessionStateType.Client;
             _startHostButton.gameObject.SetActive(isOffline || isClient);
-            _startHostButton.interactable = isOffline;
             _startClientButton.gameObject.SetActive(isOffline || isHost);
             _startClientButton.interactable = isOffline;
             _stopHostButton.gameObject.SetActive(isHost);
             _stopClientButton.gameObject.SetActive(isClient);
+            _networkAddressInput.interactable = isOffline;
+            RefreshHostButton();
         }
 
         private void HandleHostStartAvailabilityChanged(bool isHostStartAvailable)
         {
-            _startHostButton.interactable = isHostStartAvailable;
+            RefreshHostButton();
+        }
+
+        private void RefreshHostButton()
+        {
+            _startHostButton.interactable = _helloMessageViewModel.SessionState.CurrentValue == NetworkSessionStateType.Offline && _helloMessageViewModel.IsHostStartAvailable.CurrentValue;
         }
 
         private void ScrollToBottom(ScrollRect scrollRect)
         {
-            StartCoroutine(ScrollToBottomAtEndOfFrame(scrollRect));
-        }
-
-        private IEnumerator ScrollToBottomAtEndOfFrame(ScrollRect scrollRect)
-        {
-            yield return new WaitForEndOfFrame();
+            scrollRect.StopMovement();
             scrollRect.verticalNormalizedPosition = 0f;
         }
     }

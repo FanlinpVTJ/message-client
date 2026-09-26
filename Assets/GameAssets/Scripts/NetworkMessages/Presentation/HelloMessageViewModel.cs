@@ -1,21 +1,30 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using R3;
+using Zenject;
 using Yuriy.MatchThree.NetworkMessages.Contracts;
 using Yuriy.MatchThree.NetworkMessages.Services;
 
 namespace Yuriy.MatchThree.NetworkMessages.Presentation
 {
-    public sealed class HelloMessageViewModel : IDisposable
+    public sealed class HelloMessageViewModel : ILateTickable, IDisposable
     {
+        private const int MAX_HISTORY_ENTRIES = 200;
+
         private readonly IClientNetworkMessagesService _clientNetworkMessagesService;
         private readonly INetworkSessionService _networkSessionService;
         private readonly INetworkMessagesDiagnosticsService _networkMessagesDiagnosticsService;
+        private readonly Queue<string> _helloHistory = new();
+        private readonly Queue<string> _diagnosticsHistory = new();
+        private bool _helloHistoryChanged;
+        private bool _diagnosticsHistoryChanged;
 
         public ReactiveProperty<string> HelloText { get; }
         public ReactiveProperty<string> NetworkAddress { get; }
         public ReactiveProperty<string> ConnectionLog { get; }
-        public ReactiveProperty<NetworkSessionStateType> SessionState { get; }
-        public ReactiveProperty<bool> IsHostStartAvailable { get; }
+        public ReadOnlyReactiveProperty<NetworkSessionStateType> SessionState => _networkSessionService.SessionState;
+        public ReadOnlyReactiveProperty<bool> IsHostStartAvailable => _networkSessionService.IsHostStartAvailable;
 
         public HelloMessageViewModel(
             IClientNetworkMessagesService clientNetworkMessagesService,
@@ -26,101 +35,99 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
             _networkSessionService = networkSessionService;
             _networkMessagesDiagnosticsService = networkMessagesDiagnosticsService;
             HelloText = new ReactiveProperty<string>(string.Empty);
-            NetworkAddress = new ReactiveProperty<string>("localhost");
+            NetworkAddress = new ReactiveProperty<string>(_networkSessionService.NetworkAddress);
             ConnectionLog = new ReactiveProperty<string>(string.Empty);
-            SessionState = new ReactiveProperty<NetworkSessionStateType>(NetworkSessionStateType.Offline);
-            IsHostStartAvailable = new ReactiveProperty<bool>(_networkSessionService.IsHostPortAvailable());
 
             _clientNetworkMessagesService.HelloMessageReceived += HandleHelloMessageReceived;
-            _networkSessionService.OnClientSessionStopped += HandleClientSessionStopped;
             _networkMessagesDiagnosticsService.MessageReported += HandleDiagnosticsMessageReported;
         }
 
         public void StartHost()
         {
-            if (SessionState.Value != NetworkSessionStateType.Offline)
+            if (SessionState.CurrentValue != NetworkSessionStateType.Offline)
             {
                 return;
             }
 
-            SessionState.Value = NetworkSessionStateType.Host;
-
-            if (!_networkSessionService.StartHost())
-            {
-                SessionState.Value = NetworkSessionStateType.Offline;
-                RefreshHostStartAvailability();
-            }
+            _networkSessionService.StartHost();
         }
 
         public void SetNetworkAddress(string networkAddress)
         {
-            NetworkAddress.Value = networkAddress;
             _networkSessionService.SetNetworkAddress(networkAddress);
+            NetworkAddress.Value = _networkSessionService.NetworkAddress;
         }
 
         public void StartClient()
         {
-            if (SessionState.Value != NetworkSessionStateType.Offline)
+            if (SessionState.CurrentValue != NetworkSessionStateType.Offline)
             {
                 return;
             }
 
-            SessionState.Value = NetworkSessionStateType.Client;
-
-            if (!_networkSessionService.StartClient())
-            {
-                SessionState.Value = NetworkSessionStateType.Offline;
-            }
-        }
-
-        public void RefreshHostStartAvailability()
-        {
-            IsHostStartAvailable.Value = _networkSessionService.IsHostPortAvailable();
+            _networkSessionService.StartClient();
         }
 
         public void StopClient()
         {
             _networkSessionService.StopClient();
-            SessionState.Value = NetworkSessionStateType.Offline;
-            RefreshHostStartAvailability();
         }
 
         public void StopHost()
         {
-            if (_networkSessionService.StopHost())
+            _networkSessionService.StopHost();
+        }
+
+        public void LateTick()
+        {
+            if (_helloHistoryChanged)
             {
-                SessionState.Value = NetworkSessionStateType.Offline;
-                RefreshHostStartAvailability();
+                _helloHistoryChanged = false;
+                HelloText.Value = string.Join("\n", _helloHistory);
+            }
+
+            if (_diagnosticsHistoryChanged)
+            {
+                _diagnosticsHistoryChanged = false;
+                ConnectionLog.Value = string.Join("\n", _diagnosticsHistory);
             }
         }
 
         public void Dispose()
         {
             _clientNetworkMessagesService.HelloMessageReceived -= HandleHelloMessageReceived;
-            _networkSessionService.OnClientSessionStopped -= HandleClientSessionStopped;
             _networkMessagesDiagnosticsService.MessageReported -= HandleDiagnosticsMessageReported;
             HelloText.Dispose();
             NetworkAddress.Dispose();
             ConnectionLog.Dispose();
-            SessionState.Dispose();
-            IsHostStartAvailable.Dispose();
+            _helloHistory.Clear();
+            _diagnosticsHistory.Clear();
         }
 
         private void HandleHelloMessageReceived(HelloMessage message)
         {
-            HelloText.Value += $"[{DateTime.Now:HH:mm:ss dd.MM.yyyy}] [Server -> Client] {message.Text}\n";
-        }
-
-        private void HandleClientSessionStopped()
-        {
-            SessionState.Value = NetworkSessionStateType.Offline;
-            RefreshHostStartAvailability();
+            string timestamp = DateTime.Now.ToString("HH:mm:ss dd.MM.yyyy", CultureInfo.InvariantCulture);
+            string safeText = NetworkMessagesDiagnosticsService.FormatPlainText(message.Text);
+            AddHistoryEntry(_helloHistory, $"[{timestamp}] [Server -> Client] {safeText}");
+            _helloHistoryChanged = true;
         }
 
         private void HandleDiagnosticsMessageReported(NetworkDiagnosticsType diagnosticsType, string message)
         {
             string color = GetColor(diagnosticsType);
-            ConnectionLog.Value += $"<color=#{color}>{message}</color>\n";
+            string safeMessage = NetworkMessagesDiagnosticsService.FormatPlainText(message);
+            AddHistoryEntry(_diagnosticsHistory, $"<color=#{color}>{safeMessage}</color>");
+            _diagnosticsHistoryChanged = true;
+        }
+
+        private void AddHistoryEntry(Queue<string> history, string entry)
+        {
+            if (history.Count == MAX_HISTORY_ENTRIES)
+            {
+                history.Dequeue();
+            }
+
+            history.Enqueue(entry);
         }
 
         private string GetColor(NetworkDiagnosticsType diagnosticsType)
