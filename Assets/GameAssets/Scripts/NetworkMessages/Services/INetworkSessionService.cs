@@ -1,9 +1,23 @@
+using System;
+
 namespace Yuriy.MatchThree.NetworkMessages.Services
 {
     public interface INetworkSessionService
     {
-        void StartHost();
+        event Action OnClientSessionStopped;
 
-        void StartClient();
+        bool IsHostPortAvailable();
+
+        void NotifyClientSessionStopped();
+
+        void SetNetworkAddress(string networkAddress);
+
+        bool StartHost();
+
+        bool StartClient();
+
+        bool StopClient();
+
+        bool StopHost();
     }
 }

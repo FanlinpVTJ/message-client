@@ -10,13 +10,9 @@ GameObject:
   m_Component:
   - component: {fileID: 7305532418738774141}
   - component: {fileID: 403743410187365813}
-  - component: {fileID: 1187126484807346828}
-  - component: {fileID: 4671091601865755089}
-  - component: {fileID: 717347624232495758}
   - component: {fileID: 804972110358762345}
   - component: {fileID: 804972110358762346}
   - component: {fileID: 804972110358762347}
-  - component: {fileID: 804972110358762348}
   m_Layer: 0
   m_Name: ProjectContext
   m_TagString: Untagged
@@ -53,9 +49,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _scriptableObjectInstallers: []
   _monoInstallers:
-  - {fileID: 4671091601865755089}
-  - {fileID: 1187126484807346828}
-  - {fileID: 717347624232495758}
   - {fileID: 804972110358762347}
   _installerPrefabs: []
   _parentNewObjectsUnderContext: 1
@@ -71,45 +64,6 @@ MonoBehaviour:
       _missingHandlerDefaultResponse: 2
       _requireStrictUnsubscribe: 0
       _defaultAsyncTickPriority: 1
---- !u!114 &1187126484807346828
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8635371477504042855}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 8c8039b68fa3d9e4f81b6fc282d55cdb, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
---- !u!114 &4671091601865755089
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8635371477504042855}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 599433d405fbbb34784b3552e75df9ba, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  localizationConfig: {fileID: 11400000, guid: cbca5bd3fdbc2a24289e190c460d36d8, type: 2}
---- !u!114 &717347624232495758
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8635371477504042855}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b38f5ac4f2c98204c858dd71b330dc2a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  sceneLoadingConfig: {fileID: 11400000, guid: a2bd0c163f207a542b8e309272bb6dcc, type: 2}
-  loadingScreenPrefab: {fileID: 7244984616752466236, guid: fd355ba80e903714db63f924d8d8ea79, type: 3}
 --- !u!114 &804972110358762345
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -156,22 +110,22 @@ MonoBehaviour:
   headlessStartMode: 0
   editorAutoStart: 0
   sendRate: 60
-  autoStartServerBuild: 0
-  autoConnectClientBuild: 0
-  offlineScene: 
-  onlineScene: 
-  offlineSceneLoadDelay: 0
+  unreliableBaselineRate: 1
+  unreliableRedundancy: 0
   transport: {fileID: 804972110358762345}
   networkAddress: localhost
   maxConnections: 100
   disconnectInactiveConnections: 0
   disconnectInactiveTimeout: 60
+  exceptionsDisconnect: 1
   authenticator: {fileID: 0}
+  offlineScene: 
+  onlineScene: 
+  offlineSceneLoadDelay: 0
   playerPrefab: {fileID: 0}
   autoCreatePlayer: 0
   playerSpawnMethod: 0
   spawnPrefabs: []
-  exceptionsDisconnect: 1
   snapshotSettings:
     bufferTimeMultiplier: 2
     bufferLimit: 32
@@ -184,6 +138,8 @@ MonoBehaviour:
     dynamicAdjustmentTolerance: 1
     deliveryTimeEmaDuration: 2
   evaluationMethod: 0
+  evaluationInterval: 3
+  timeInterpolationGui: 0
 --- !u!114 &804972110358762347
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -196,15 +152,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d1b36f049059bd241bbd0d29111e922d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
---- !u!114 &804972110358762348
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8635371477504042855}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f9a94b6a98cf4ddcac695750484a4491, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  _helloMessageViewPrefab: {fileID: 8557628277078761145, guid: ec617bd04e924cf4c9cd40a74e842193, type: 3}
