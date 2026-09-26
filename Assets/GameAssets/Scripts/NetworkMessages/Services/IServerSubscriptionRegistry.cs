@@ -14,6 +14,6 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 
         void RemoveConnection(int connectionId);
 
-        void Clear();
+        void ClearSubscriptions();
     }
 }

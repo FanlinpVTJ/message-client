@@ -19,13 +19,12 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
         private readonly INetworkMessagesDiagnosticsService _networkMessagesDiagnosticsService;
         private readonly ReactiveProperty<NetworkSessionStateType> _sessionState = new(NetworkSessionStateType.Offline);
         private readonly ReactiveProperty<bool> _isHostStartAvailable = new(false);
-        private readonly ReactiveProperty<string> _hostStartUnavailableReason = new(string.Empty);
+        private string _hostStartUnavailableReason = string.Empty;
         private double _nextPortCheckTime;
         private bool _hasReportedHostAvailability;
 
         public ReadOnlyReactiveProperty<NetworkSessionStateType> SessionState => _sessionState;
         public ReadOnlyReactiveProperty<bool> IsHostStartAvailable => _isHostStartAvailable;
-        public ReadOnlyReactiveProperty<string> HostStartUnavailableReason => _hostStartUnavailableReason;
         public string NetworkAddress => _networkManager.networkAddress;
 
         public MirrorNetworkSessionService(
@@ -52,7 +51,6 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
         {
             _sessionState.Dispose();
             _isHostStartAvailable.Dispose();
-            _hostStartUnavailableReason.Dispose();
         }
 
         public void SetNetworkAddress(string networkAddress)
@@ -64,11 +62,6 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 
             _networkManager.networkAddress = networkAddress.Trim();
             _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, $"Server address set to {_networkManager.networkAddress}.");
-        }
-
-        public bool IsHostPortAvailable()
-        {
-            return GetHostStartUnavailableReason().Length == 0;
         }
 
         private string GetHostStartUnavailableReason()
@@ -310,10 +303,10 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 
         private void SetHostStartAvailability(string reason, NetworkDiagnosticsType diagnosticsType)
         {
-            bool reasonChanged = _hostStartUnavailableReason.Value != reason;
+            bool reasonChanged = _hostStartUnavailableReason != reason;
             bool isAvailable = reason.Length == 0;
             _isHostStartAvailable.Value = isAvailable;
-            _hostStartUnavailableReason.Value = reason;
+            _hostStartUnavailableReason = reason;
 
             if (_hasReportedHostAvailability && !reasonChanged)
             {

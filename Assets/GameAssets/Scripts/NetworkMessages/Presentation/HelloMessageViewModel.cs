@@ -25,7 +25,6 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
         public ReactiveProperty<string> ConnectionLog { get; }
         public ReadOnlyReactiveProperty<NetworkSessionStateType> SessionState => _networkSessionService.SessionState;
         public ReadOnlyReactiveProperty<bool> IsHostStartAvailable => _networkSessionService.IsHostStartAvailable;
-        public ReadOnlyReactiveProperty<string> HostStartUnavailableReason => _networkSessionService.HostStartUnavailableReason;
 
         public HelloMessageViewModel(
             IClientNetworkMessagesService clientNetworkMessagesService,
@@ -45,11 +44,6 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
 
         public void StartHost()
         {
-            if (SessionState.CurrentValue != NetworkSessionStateType.Offline)
-            {
-                return;
-            }
-
             _networkSessionService.StartHost();
         }
 
@@ -61,11 +55,6 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
 
         public void StartClient()
         {
-            if (SessionState.CurrentValue != NetworkSessionStateType.Offline)
-            {
-                return;
-            }
-
             _networkSessionService.StartClient();
         }
 
@@ -116,8 +105,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Presentation
         private void HandleDiagnosticsMessageReported(NetworkDiagnosticsType diagnosticsType, string message)
         {
             string color = GetColor(diagnosticsType);
-            string safeMessage = NetworkMessagesDiagnosticsService.FormatPlainText(message);
-            AddHistoryEntry(_diagnosticsHistory, $"<color=#{color}>{safeMessage}</color>");
+            AddHistoryEntry(_diagnosticsHistory, $"<color=#{color}>{message}</color>");
             _diagnosticsHistoryChanged = true;
         }
 

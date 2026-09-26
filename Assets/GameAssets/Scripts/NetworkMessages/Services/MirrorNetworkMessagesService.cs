@@ -58,21 +58,9 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
                 return false;
             }
 
-            if (registration.IsHandlerRegistered)
-            {
-                registration.UnregisterHandler();
-                registration.IsHandlerRegistered = false;
-            }
-
             registration.RegisterHandler = () => NetworkClient.ReplaceHandler<T>(message => HandleMessage(message, registration, handler));
             registration.IsSubscribed = true;
-
-            if (NetworkClient.active)
-            {
-                RegisterClientHandler(registration);
-                SynchronizeClientSubscription(registration);
-            }
-
+            SynchronizeClientSubscription(registration);
             return true;
         }
 
@@ -142,7 +130,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
 
         public void InitializeServer()
         {
-            _subscriptionRegistry.Clear();
+            _subscriptionRegistry.ClearSubscriptions();
             _subscriptionRateLimits.Clear();
             _sendRateLimits.Clear();
             NetworkServer.RegisterHandler<NetworkSubscriptionMessage>(HandleSubscriptionMessage);
@@ -156,12 +144,6 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
             foreach (MessageRegistration registration in _registrationsByMessageType.Values)
             {
                 registration.IsSubscriptionSent = false;
-                registration.IsHandlerRegistered = false;
-
-                if (registration.IsSubscribed)
-                {
-                    RegisterClientHandler(registration);
-                }
             }
 
             _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, "Client network service initialized.");
@@ -189,11 +171,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
             {
                 registration.IsSubscriptionSent = false;
 
-                if (registration.IsHandlerRegistered)
-                {
-                    registration.UnregisterHandler();
-                    registration.IsHandlerRegistered = false;
-                }
+                registration.UnregisterHandler();
             }
 
             _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Information, "Client network service stopped.");
@@ -202,7 +180,7 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
         public void StopServer()
         {
             NetworkServer.UnregisterHandler<NetworkSubscriptionMessage>();
-            _subscriptionRegistry.Clear();
+            _subscriptionRegistry.ClearSubscriptions();
             _subscriptionRateLimits.Clear();
             _sendRateLimits.Clear();
         }
@@ -219,18 +197,6 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
             return registration;
         }
 
-        private void RegisterClientHandler(MessageRegistration registration)
-        {
-            if (registration.IsHandlerRegistered)
-            {
-                return;
-            }
-
-            registration.RegisterHandler();
-            registration.IsHandlerRegistered = true;
-            _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Success, $"{registration.MessageType} handler registered on client.");
-        }
-
         private void SynchronizeClientSubscription(MessageRegistration registration)
         {
             if (!NetworkClient.isConnected || !registration.IsSubscribed || registration.IsSubscriptionSent)
@@ -238,7 +204,8 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
                 return;
             }
 
-            RegisterClientHandler(registration);
+            registration.RegisterHandler();
+            _networkMessagesDiagnosticsService.Report(NetworkDiagnosticsType.Success, $"{registration.MessageType} handler registered on client.");
             registration.IsSubscriptionSent = true;
             SendSubscription(registration, NetworkSubscriptionOperationType.Subscribe);
         }
@@ -346,7 +313,6 @@ namespace Yuriy.MatchThree.NetworkMessages.Services
             public Action RegisterHandler { get; set; }
             public bool IsSubscribed { get; set; }
             public bool IsSubscriptionSent { get; set; }
-            public bool IsHandlerRegistered { get; set; }
 
             public MessageRegistration(NetworkMessageType messageType, Action unregisterHandler)
             {
